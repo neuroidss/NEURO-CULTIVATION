@@ -166,6 +166,7 @@ const DroneAvatar = ({
   const activeRef = droneRef || localRef;
   const visualGroupRef = useRef<THREE.Group>(null);
   const fpvCamRef = useRef<THREE.PerspectiveCamera>(null);
+  const intentArrowRef = useRef<THREE.Group>(null);
   
   // Initialize initial yaw once
   useEffect(() => {
@@ -207,6 +208,10 @@ const DroneAvatar = ({
     (activeRef.current.userData as any).targetPitch = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, (activeRef.current.userData as any).targetPitch));
 
     let yaw = 0; // We handle yaw directly in physics now
+    
+    let intentMag = 0;
+    let rawIntentX = 0;
+    let rawIntentY = 0;
 
     if (ble.isConnected) {
       const uData = activeRef.current.userData;
@@ -219,9 +224,41 @@ const DroneAvatar = ({
       const smooth = 0.98 - (skillLevel * 0.1); 
       const gain = 1.0; 
 
-      uData.sRoll = uData.sRoll * smooth + ble.target_vx * gain * (1 - smooth);
-      uData.sPitch = uData.sPitch * smooth + ble.target_vy * gain * (1 - smooth);
-      uData.sYawSpeed = uData.sYawSpeed * smooth + ble.target_tq * gain * (1 - smooth);
+      let intentX = 0, intentY = 0, intentTq = 0;
+      
+      let coherenceGate = 1.0;
+      let sweepX = ble.sweep_vx / 24.0;
+      let sweepY = ble.sweep_vy / 24.0;
+      let sweepTq = ble.sweep_tq / 24.0;
+      
+      let mot_mag = Math.sqrt(ble.target_vx**2 + ble.target_vy**2);
+      let sweep_mag = Math.sqrt(sweepX**2 + sweepY**2);
+      let alignment = (ble.target_vx * sweepX + ble.target_vy * sweepY) / (mot_mag * sweep_mag + 1e-6);
+      coherenceGate = Math.max(0.0, alignment);
+      
+      // Default to semantic/sweep (Working Memory) if it has energy, fallback to motor
+      if (sweep_mag > 0.05) {
+          intentX = sweepX;
+          intentY = sweepY;
+          intentTq = sweepTq;
+          intentMag = sweep_mag;
+          rawIntentX = sweepX;
+          rawIntentY = sweepY;
+      } else {
+          intentX = ble.target_vx;
+          intentY = ble.target_vy;
+          intentTq = ble.target_tq;
+          intentMag = mot_mag;
+          rawIntentX = ble.target_vx;
+          rawIntentY = ble.target_vy;
+      }
+      
+      // Drone physics expects pitch (forward/back) on Y and roll (left/right) on X.
+      // But for camera-relative logic, we'll keep roll=X and pitch=Y.
+
+      uData.sRoll = uData.sRoll * smooth + intentX * gain * (1 - smooth);
+      uData.sPitch = uData.sPitch * smooth + intentY * gain * (1 - smooth);
+      uData.sYawSpeed = uData.sYawSpeed * smooth + intentTq * gain * (1 - smooth);
 
       pitch = uData.sPitch; 
       roll = uData.sRoll; 
@@ -236,9 +273,71 @@ const DroneAvatar = ({
                throttle += -dev2.tq;
           }
       }
+    } else {
+       intentMag = Math.sqrt(roll*roll + pitch*pitch);
+       rawIntentX = roll;
+       rawIntentY = pitch;
     }
 
-    applyDronePhysics(activeRef, { pitch, roll, yaw: 0, throttle }, delta, visualGroupRef);
+    const currentPos = activeRef.current.translation();
+
+    // Update Intent Arrow
+    if (intentArrowRef.current) {
+        if (intentMag > 0.05) {
+            intentArrowRef.current.visible = true;
+            intentArrowRef.current.position.set(currentPos.x, currentPos.y - 0.4, currentPos.z);
+            
+            const camEuler = new THREE.Euler().setFromQuaternion(state.camera.quaternion, 'YXZ');
+            const camYaw = new THREE.Euler(0, camEuler.y, 0, 'YXZ');
+            
+            // Map intent to world space via camera yaw
+            const dirVector = new THREE.Vector3(rawIntentX, 0, rawIntentY);
+            dirVector.applyEuler(camYaw).normalize();
+            
+            const arrowTarget = new THREE.Vector3(currentPos.x + dirVector.x, currentPos.y - 0.4, currentPos.z + dirVector.z);
+            intentArrowRef.current.lookAt(arrowTarget);
+            
+            const arrowMesh1 = intentArrowRef.current.children[0] as THREE.Mesh;
+            const arrowMesh2 = intentArrowRef.current.children[1] as THREE.Mesh;
+            if (arrowMesh1?.material) (arrowMesh1.material as THREE.MeshBasicMaterial).opacity = Math.min(0.8, intentMag);
+            if (arrowMesh2?.material) (arrowMesh2.material as THREE.MeshBasicMaterial).opacity = Math.min(0.6, intentMag * 0.8);
+        } else {
+            intentArrowRef.current.visible = false;
+        }
+    }
+
+    // Replace the default physics with a camera-relative version
+    const speedScale = 15.0; // Base speed
+    
+    const camEuler = new THREE.Euler().setFromQuaternion(state.camera.quaternion, 'YXZ');
+    const camYaw = new THREE.Euler(0, camEuler.y, 0, 'YXZ');
+    const forwardVec = new THREE.Vector3(0, 0, -1).applyEuler(camYaw);
+    const rightVec = new THREE.Vector3(1, 0, 0).applyEuler(camYaw);
+    
+    const targetVel = activeRef.current.linvel();
+    // Decay velocity (air friction)
+    targetVel.x *= 0.95;
+    targetVel.z *= 0.95;
+    targetVel.y *= 0.95;
+    
+    // Add thrust relative to camera view
+    // Pitch is up/down on joystick, which is forward/back. Roll is left/right.
+    targetVel.x += (forwardVec.x * -pitch + rightVec.x * roll) * speedScale * 0.1;
+    targetVel.z += (forwardVec.z * -pitch + rightVec.z * roll) * speedScale * 0.1;
+    
+    targetVel.y += throttle * 1.5; // Up/down relative to world
+
+    // Explicitly clamp drone rotation so it always faces its targetYaw (camera look direction)
+    const targetQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, (activeRef.current.userData as any).targetYaw, 0, 'YXZ'));
+    activeRef.current.setRotation(targetQuat, true);
+    activeRef.current.setLinvel(targetVel, true);
+    activeRef.current.setAngvel({x: 0, y: 0, z: 0}, true); // Stop any physics rotation
+
+    // Visual tilt based on movement intent
+    if (visualGroupRef.current) {
+        visualGroupRef.current.rotation.z = roll * -0.5; // Roll visual
+        visualGroupRef.current.rotation.x = pitch * 0.5; // Pitch visual
+    }
     applySpatialSupport(activeRef, rings, 12.0); // Widen support boundary so bots and players don't hit tube walls randomly
 
     if (fpvCamRef.current) {
@@ -344,6 +443,17 @@ const DroneAvatar = ({
           <meshBasicMaterial color="#00ffff" side={THREE.DoubleSide} />
         </mesh>
         <pointLight color={color || "#00ffff"} intensity={2} distance={5} />
+      </group>
+
+      <group ref={intentArrowRef} visible={false}>
+          <mesh position={[0, 0, -1.2]} rotation={[Math.PI / 2, 0, 0]}>
+              <coneGeometry args={[0.3, 0.8, 4]} />
+              <meshBasicMaterial color="#00ffff" transparent opacity={0.8} depthTest={false} />
+          </mesh>
+          <mesh position={[0, 0, -0.4]} rotation={[Math.PI / 2, 0, 0]}>
+              <planeGeometry args={[0.1, 1.6]} />
+              <meshBasicMaterial color="#00ffff" transparent opacity={0.6} depthTest={false} />
+          </mesh>
       </group>
 
       {/* FPV Camera is attached to the body, strictly using mouse look, NOT the visual tilt */}

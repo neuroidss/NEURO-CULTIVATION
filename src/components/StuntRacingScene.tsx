@@ -5,6 +5,7 @@ import { Sky, PerspectiveCamera, Grid, Box, Cylinder, Sphere } from "@react-thre
 import * as THREE from "three";
 import { Physics, RigidBody, RapierRigidBody } from "@react-three/rapier";
 import { BleService } from "../lib/BleService";
+import { InputService } from "../lib/InputService";
 import { CultivationEngine } from "../lib/CultivationEngine";
 import { globalXrStore as xrStore } from "../lib/xrStore";
 
@@ -206,18 +207,57 @@ function StuntCar({ carRb }: { carRb: React.RefObject<RapierRigidBody> }) {
   const w4 = useRef<THREE.Mesh>(null);
   const chassisMat = useRef<THREE.MeshStandardMaterial>(null);
   
+  // Add group ref for intent arrow
+  const intentArrowRef = useRef<THREE.Group>(null);
+  
   // Apex positions for the sling shot multiplier
   const apexSouth = new THREE.Vector3(0, 0, 270);
   const apexNorth = new THREE.Vector3(0, 0, -270);
   
   useFrame((state, delta) => {
     const ble = BleService.getInstance();
+    const input = InputService.getInstance();
     const cultEngine = CultivationEngine.getInstance();
     const rawCoherences = ble.rawAxes;
     
-    let vx = ble.target_vx || 0;
-    let vy = -(ble.target_vy || 0); // Correctly bound so pushing UP moves FORWARD
-    let tq = ble.target_tq || 0;
+    let vx = 0;
+    let vy = 0;
+    let tq = 0;
+
+    let intentMag = 0;
+    let rawIntentX = 0;
+    let rawIntentY = 0;
+
+    if (ble.isConnected) {
+        const cMode = input.useSensors ? 'Sweep' : 'Classic';
+        let sweepX = ble.sweep_vx / 24.0;
+        let sweepY = ble.sweep_vy / 24.0;
+        let sweepTq = ble.sweep_tq / 24.0;
+        let sweep_mag = Math.sqrt(sweepX**2 + sweepY**2);
+        
+        if (sweep_mag > 0.05) {
+            vx = sweepX;
+            vy = -sweepY;
+            tq = sweepTq;
+            intentMag = sweep_mag;
+            rawIntentX = sweepX;
+            rawIntentY = sweepY;
+        } else {
+            vx = ble.target_vx || 0;
+            vy = -(ble.target_vy || 0); // Correctly bound so pushing UP moves FORWARD
+            tq = ble.target_tq || 0;
+            intentMag = Math.sqrt(vx*vx + vy*vy);
+            rawIntentX = vx;
+            rawIntentY = -vy; // revert inversion for arrow
+        }
+    } else {
+        vx = (input.rawAxes[0] || 0) * 5.0;
+        vy = (input.rawAxes[1] || 0) * 5.0; // Inverted or not? For consistency with ble.target_vy which is Y screen
+        tq = (input.rawAxes[2] || 0) * 5.0;
+        intentMag = Math.sqrt(vx*vx + vy*vy);
+        rawIntentX = vx;
+        rawIntentY = vy;
+    }
 
     let chaosFactor = cultEngine.progress;
 
@@ -265,17 +305,52 @@ function StuntCar({ carRb }: { carRb: React.RefObject<RapierRigidBody> }) {
        }
     }
 
+    // Update Intent Arrow
+    if (intentArrowRef.current) {
+        if (intentMag > 0.05) {
+            intentArrowRef.current.visible = true;
+            intentArrowRef.current.position.set(pos.x, pos.y + 0.5, pos.z);
+            
+            const camEuler = new THREE.Euler().setFromQuaternion(state.camera.quaternion, 'YXZ');
+            const camYaw = new THREE.Euler(0, camEuler.y, 0, 'YXZ');
+            
+            // Map intent to world space via camera yaw
+            const dirVector = new THREE.Vector3(rawIntentX, 0, rawIntentY);
+            dirVector.applyEuler(camYaw).normalize();
+            
+            const arrowTarget = new THREE.Vector3(pos.x + dirVector.x, pos.y + 0.5, pos.z + dirVector.z);
+            intentArrowRef.current.lookAt(arrowTarget);
+            
+            const arrowMesh1 = intentArrowRef.current.children[0] as THREE.Mesh;
+            const arrowMesh2 = intentArrowRef.current.children[1] as THREE.Mesh;
+            if (arrowMesh1?.material) (arrowMesh1.material as THREE.MeshBasicMaterial).opacity = Math.min(0.8, intentMag);
+            if (arrowMesh2?.material) (arrowMesh2.material as THREE.MeshBasicMaterial).opacity = Math.min(0.6, intentMag * 0.8);
+        } else {
+            intentArrowRef.current.visible = false;
+        }
+    }
+
     // Apply Physical Vectors using pure Impulse limits wall clipping entirely
     if (carRb.current) {
         const moveSpeed = 80.0 * maxSpeedMulti;
         
         const rot = carRb.current.rotation();
         const carQuat = new THREE.Quaternion(rot.x, rot.y, rot.z, rot.w);
-        const forwardVec = new THREE.Vector3(0, 0, -1).applyQuaternion(carQuat);
-        const rightVec = new THREE.Vector3(1, 0, 0).applyQuaternion(carQuat);
+        
+        const camEuler = new THREE.Euler().setFromQuaternion(state.camera.quaternion, 'YXZ');
+        const camYaw = new THREE.Euler(0, camEuler.y, 0, 'YXZ');
+        
+        // Instead of car forward/right, use camera forward/right for strafe inputs
+        const forwardVec = new THREE.Vector3(0, 0, -1).applyEuler(camYaw);
+        const rightVec = new THREE.Vector3(1, 0, 0).applyEuler(camYaw);
+        
+        // Also keep actual car forward for standard friction
+        const carForwardVec = new THREE.Vector3(0, 0, -1).applyQuaternion(carQuat);
         
         const currentVel = carRb.current.linvel();
         const velVec = new THREE.Vector3(currentVel.x, 0, currentVel.z);
+        
+        // We project current velocity onto the camera's axes to know how fast we are going relative to user input
         const currentForwardSpeed = velVec.dot(forwardVec);
         const currentRightSpeed = velVec.dot(rightVec);
         
@@ -344,6 +419,17 @@ function StuntCar({ carRb }: { carRb: React.RefObject<RapierRigidBody> }) {
            <Cylinder ref={w2} args={[0.5, 0.5, 0.7]} position={[1.3, -0.2, 1.2]} rotation={[0, 0, Math.PI / 2]}><meshStandardMaterial color="#111" roughness={0.9} /></Cylinder>
            <Cylinder ref={w3} args={[0.5, 0.5, 0.7]} position={[-1.3, -0.2, -1.2]} rotation={[0, 0, Math.PI / 2]}><meshStandardMaterial color="#111" roughness={0.9} /></Cylinder>
            <Cylinder ref={w4} args={[0.5, 0.5, 0.7]} position={[1.3, -0.2, -1.2]} rotation={[0, 0, Math.PI / 2]}><meshStandardMaterial color="#111" roughness={0.9} /></Cylinder>
+           
+           <group ref={intentArrowRef} visible={false}>
+               <mesh position={[0, -0.3, -1.2]} rotation={[Math.PI / 2, 0, 0]}>
+                   <coneGeometry args={[0.3, 0.8, 4]} />
+                   <meshBasicMaterial color="#00ffff" transparent opacity={0.8} depthTest={false} />
+               </mesh>
+               <mesh position={[0, -0.3, -0.4]} rotation={[Math.PI / 2, 0, 0]}>
+                   <planeGeometry args={[0.1, 1.6]} />
+                   <meshBasicMaterial color="#00ffff" transparent opacity={0.6} depthTest={false} />
+               </mesh>
+           </group>
        </group>
     </RigidBody>
   )

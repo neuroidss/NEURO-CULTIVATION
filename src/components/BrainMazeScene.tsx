@@ -78,15 +78,16 @@ export const BrainMazeScene = ({ currentPosRef, driftRef, mode1Refs, mode2Refs, 
                     intentTq = ble.target_tq;
                     currentPersistence = ble.synapticPersistence;
                 } else if (controlMode === 'Sweep' || controlMode === 'Semantic') {
-                    intentX = ble.sweep_vx;
-                    intentY = ble.sweep_vy;
-                    intentTq = ble.sweep_tq;
+                    // sweep values are internally ~12x larger, so we divide by 24 to normalize
+                    intentX = ble.sweep_vx / 24.0;
+                    intentY = ble.sweep_vy / 24.0;
+                    intentTq = ble.sweep_tq / 24.0;
                     currentPersistence = ble.sweep_persistence;
                 } else {
                     // Resonance Lock
                     let mot_mag = Math.sqrt(ble.target_vx**2 + ble.target_vy**2);
-                    let sweep_mag = Math.sqrt(ble.sweep_vx**2 + ble.sweep_vy**2);
-                    let alignment = (ble.target_vx * ble.sweep_vx + ble.target_vy * ble.sweep_vy) / (mot_mag * sweep_mag + 1e-6);
+                    let sweep_mag = Math.sqrt((ble.sweep_vx/24.0)**2 + (ble.sweep_vy/24.0)**2);
+                    let alignment = (ble.target_vx * (ble.sweep_vx/24.0) + ble.target_vy * (ble.sweep_vy/24.0)) / (mot_mag * sweep_mag + 1e-6);
                     coherenceGate = Math.max(0.0, alignment);
                     
                     if (coherenceGate > 0.4) {

@@ -148,6 +148,7 @@ const OrbiterSwarm = ({ playerRb, getPstFut, baseColor, bladeCount = 28, collisi
 const RobotAvatar = ({ currentPosRef, driftRef, mode1Refs, mode2Refs, movementAxes, viewMode, controlMode = 'Classic', controlBlend = 0.0, moveSensitivity = 0.05, zoomLevel = 80, movementInput = 'BLE', bladesInput = 'BLE', bladeCount = 28, audioEngine }: RobotArenaProps) => {
     const rb = useRef<RapierRigidBody>(null);
     const bodyMesh = useRef<THREE.Mesh>(null);
+    const intentArrowRef = useRef<THREE.Group>(null);
     const cameraTarget = useRef(new THREE.Vector3());
     const smoothedIntent = useRef({ x: 0, z: 0, yaw: 0 });
 
@@ -188,8 +189,8 @@ const RobotAvatar = ({ currentPosRef, driftRef, mode1Refs, mode2Refs, movementAx
         }
 
         const ble = BleService.getInstance();
-        if (ble.isConnected && ble.pastAxes && ble.futureAxes) {
-            const N = ble.pastAxes.length;
+        if (ble.isConnected && ble.rawAxes) {
+            const N = ble.rawAxes.length;
             const M = bladeCount;
             
             for(let i=0; i<128; i++) {
@@ -206,8 +207,10 @@ const RobotAvatar = ({ currentPosRef, driftRef, mode1Refs, mode2Refs, movementAx
                 for (let c2 = c1 + 1; c2 < ch; c2++) {
                     if (pairIdx >= N) break;
 
-                    const pastVal = ble.pastAxes[pairIdx];
-                    const futVal = ble.futureAxes[pairIdx];
+                    // Blades driven by Beta (rawAxes, 18-36 Hz)
+                    const betaVal = ble.rawAxes[pairIdx] || 0;
+                    const pastVal = Math.max(0, -betaVal);
+                    const futVal = Math.max(0, betaVal);
                     
                     const cx = (electrodes[c1].x + electrodes[c2].x) / 2;
                     const cy = (electrodes[c1].y + electrodes[c2].y) / 2;
@@ -252,10 +255,12 @@ const RobotAvatar = ({ currentPosRef, driftRef, mode1Refs, mode2Refs, movementAx
 
         if (movementInput === 'BLE' && ble.isConnected) {
             // Scale BLE target velocities to match gamepad intent magnitudes
-            const eegScale = EngineConfig.Arena.intentMoveMagnitude / 2.0; 
-            classicIntentZ = ble.target_vy * eegScale; 
-            classicIntentX = ble.target_vx * eegScale; 
-            classicIntentYaw = ble.target_tq * (EngineConfig.Arena.intentTurnMagnitude / 2.0); 
+            // Movement driven by Working Memory (Gamma cross-frequency phase / sweep)
+            // Note: sweep_val is internally scaled by 12x in BleService, so we divide the scale significantly to keep control smooth.
+            const eegScale = EngineConfig.Arena.intentMoveMagnitude / 24.0; 
+            classicIntentZ = ble.sweep_vy * eegScale; 
+            classicIntentX = ble.sweep_vx * eegScale; 
+            classicIntentYaw = ble.sweep_tq * (EngineConfig.Arena.intentTurnMagnitude / 24.0); 
         } else {
             classicIntentZ = (input.rawAxes[1] || 0) * EngineConfig.Arena.intentMoveMagnitude; 
             classicIntentX = (input.rawAxes[0] || 0) * EngineConfig.Arena.intentMoveMagnitude;  
@@ -306,10 +311,10 @@ const RobotAvatar = ({ currentPosRef, driftRef, mode1Refs, mode2Refs, movementAx
         } else {
             // Fallback to classic when semantics are missing
             if (movementInput === 'BLE' && ble.isConnected) {
-                const eegScale = EngineConfig.Arena.intentMoveMagnitude / 2.0; 
-                semanticIntentZ = ble.target_vy * eegScale; 
-                semanticIntentX = ble.target_vx * eegScale; 
-                semanticIntentYaw = ble.target_tq * (EngineConfig.Arena.intentTurnMagnitude / 2.0); 
+                const eegScale = EngineConfig.Arena.intentMoveMagnitude / 24.0; 
+                semanticIntentZ = ble.sweep_vy * eegScale; 
+                semanticIntentX = ble.sweep_vx * eegScale; 
+                semanticIntentYaw = ble.sweep_tq * (EngineConfig.Arena.intentTurnMagnitude / 24.0); 
             } else {
                 semanticIntentZ = (input.rawAxes[1] || 0) * EngineConfig.Arena.intentMoveMagnitude; 
                 semanticIntentX = (input.rawAxes[0] || 0) * EngineConfig.Arena.intentMoveMagnitude;  
@@ -366,8 +371,14 @@ const RobotAvatar = ({ currentPosRef, driftRef, mode1Refs, mode2Refs, movementAx
         const rot = rb.current.rotation();
         const euler = new THREE.Euler().setFromQuaternion(new THREE.Quaternion(rot.x, rot.y, rot.z, rot.w), 'YXZ');
         
-        const forwardVector = new THREE.Vector3(0, 0, 1).applyEuler(euler);
-        const rightVector = new THREE.Vector3(1, 0, 0).applyEuler(euler);
+        // Strafe direction is always relative to the camera's view (screen space)
+        const camEuler = new THREE.Euler().setFromQuaternion(state.camera.quaternion, 'YXZ');
+        const camYaw = new THREE.Euler(0, camEuler.y, 0, 'YXZ');
+        
+        // (0,0,1) points towards the camera. If user wants to move forward (negative sIntentZ),
+        // multiplying by (0,0,1) makes velocity negative along the camera's local Z (away from camera).
+        const forwardVector = new THREE.Vector3(0, 0, 1).applyEuler(camYaw);
+        const rightVector = new THREE.Vector3(1, 0, 0).applyEuler(camYaw);
         
         const targetVx = (forwardVector.x * sIntentZ + rightVector.x * sIntentX) * baseSpeedScale;
         const targetVz = (forwardVector.z * sIntentZ + rightVector.z * sIntentX) * baseSpeedScale;
@@ -388,10 +399,20 @@ const RobotAvatar = ({ currentPosRef, driftRef, mode1Refs, mode2Refs, movementAx
         
         let clampedVx = targetVxSafe;
         let clampedVz = targetVzSafe;
-        if (currentPos.x < -24.5 && targetVxSafe < 0) clampedVx = 0;
-        if (currentPos.x > 24.5 && targetVxSafe > 0) clampedVx = 0;
-        if (currentPos.z < -24.5 && targetVzSafe < 0) clampedVz = 0;
-        if (currentPos.z > 24.5 && targetVzSafe > 0) clampedVz = 0;
+        
+        // Strict physical position clamping (Arena is 50x50, bounded at +/- 24.5)
+        let forcedX = currentPos.x;
+        let forcedZ = currentPos.z;
+        let requiresClamp = false;
+
+        if (currentPos.x < -24.5) { forcedX = -24.5; clampedVx = Math.max(0, clampedVx); requiresClamp = true; }
+        if (currentPos.x > 24.5) { forcedX = 24.5; clampedVx = Math.min(0, clampedVx); requiresClamp = true; }
+        if (currentPos.z < -24.5) { forcedZ = -24.5; clampedVz = Math.max(0, clampedVz); requiresClamp = true; }
+        if (currentPos.z > 24.5) { forcedZ = 24.5; clampedVz = Math.min(0, clampedVz); requiresClamp = true; }
+
+        if (requiresClamp) {
+            rb.current.setTranslation({ x: forcedX, y: currentPos.y, z: forcedZ }, true);
+        }
 
         rb.current.setLinvel({ x: clampedVx, y: targetVySafe, z: clampedVz }, true);
         
@@ -400,6 +421,36 @@ const RobotAvatar = ({ currentPosRef, driftRef, mode1Refs, mode2Refs, movementAx
         const targetQuat = new THREE.Quaternion().setFromEuler(newEuler);
         rb.current.setRotation({ x: fixNaN(targetQuat.x), y: fixNaN(targetQuat.y), z: fixNaN(targetQuat.z), w: fixNaN(targetQuat.w) }, true);
         rb.current.setAngvel({ x: 0, y: 0, z: 0 }, true);
+
+        // Update the visual intent arrow based on the raw intent from Sweep/Working Memory (or motor fallback)
+        if (intentArrowRef.current) {
+            const rawMag = Math.sqrt(intentX * intentX + intentZ * intentZ);
+            if (rawMag > 0.05) {
+                intentArrowRef.current.visible = true;
+                intentArrowRef.current.position.set(currentPos.x, currentPos.y - 0.4, currentPos.z);
+                
+                // Calculate world direction the user is trying to push toward
+                const dirVector = new THREE.Vector3(intentX, 0, intentZ);
+                // The intent is defined in screen space, so we apply the camera yaw to map it to world space
+                dirVector.applyEuler(camYaw).normalize();
+                
+                // Point the arrow
+                const arrowTarget = new THREE.Vector3(
+                    currentPos.x + dirVector.x, 
+                    currentPos.y - 0.4, 
+                    currentPos.z + dirVector.z
+                );
+                intentArrowRef.current.lookAt(arrowTarget);
+                
+                // Scale opacity based on intent strength
+                const arrowMesh1 = intentArrowRef.current.children[0] as THREE.Mesh;
+                const arrowMesh2 = intentArrowRef.current.children[1] as THREE.Mesh;
+                if (arrowMesh1?.material) (arrowMesh1.material as THREE.MeshBasicMaterial).opacity = Math.min(0.8, rawMag);
+                if (arrowMesh2?.material) (arrowMesh2.material as THREE.MeshBasicMaterial).opacity = Math.min(0.6, rawMag * 0.8);
+            } else {
+                intentArrowRef.current.visible = false;
+            }
+        }
 
         if (bodyMesh.current) {
             const mat = bodyMesh.current.material as THREE.MeshStandardMaterial;
@@ -476,6 +527,16 @@ const RobotAvatar = ({ currentPosRef, driftRef, mode1Refs, mode2Refs, movementAx
                     <meshStandardMaterial color="cyan" />
                 </Box>
             </RigidBody>
+            <group ref={intentArrowRef} visible={false}>
+                <mesh position={[0, 0, 1.2]} rotation={[-Math.PI / 2, 0, 0]}>
+                    <coneGeometry args={[0.3, 0.8, 4]} />
+                    <meshBasicMaterial color="#00ffff" transparent opacity={0.8} depthTest={false} />
+                </mesh>
+                <mesh position={[0, 0, 0.4]} rotation={[-Math.PI / 2, 0, 0]}>
+                    <planeGeometry args={[0.1, 1.6]} />
+                    <meshBasicMaterial color="#00ffff" transparent opacity={0.6} depthTest={false} />
+                </mesh>
+            </group>
             <OrbiterSwarm key={`swarm-${bladeCount}`} playerRb={rb} getPstFut={getPstFut} baseColor={0.5} bladeCount={bladeCount} collisionGroups={196606} />
         </>
     );

@@ -129,6 +129,7 @@ export default function RoboArmScene({
     
     const autoGrabState = useRef<'find' | 'dip' | 'grab' | 'lift' | 'holding' | 'drop'>('find');
     const sequenceTimer = useRef(0);
+    const intentArrowRef = useRef<THREE.Group>(null);
 
     useFrame((state, dtRaw) => {
         const dt = Math.min(0.05, dtRaw); // Prevent physics explosions on lag spikes
@@ -146,9 +147,67 @@ export default function RoboArmScene({
             for (let i = 0; i < ble.devices.length; i++) {
                 let da = ble.deviceAxes[i];
                 if (da) {
+                    let ax0 = da.vx, ax1 = da.vy, ax2 = da.tq;
+                    if (i === 0) { // Main device uses controlMode logic
+                        const cMode = input.useSensors ? 'Sweep' : 'Classic';
+                        let sweepX = ble.sweep_vx / 24.0;
+                        let sweepY = ble.sweep_vy / 24.0;
+                        let sweepTq = ble.sweep_tq / 24.0;
+                        let mot_mag = Math.sqrt(ble.target_vx**2 + ble.target_vy**2);
+                        let sweep_mag = Math.sqrt(sweepX**2 + sweepY**2);
+                        
+                        if (sweep_mag > 0.05) {
+                            ax0 = sweepX; ax1 = sweepY; ax2 = sweepTq;
+                            if (intentArrowRef.current && j5Ref.current) {
+                                intentArrowRef.current.visible = true;
+                                
+                                // Exactly mirror the arcade IK movement logic
+                                const camEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+                                const camYaw = new THREE.Euler(0, camEuler.y, 0, 'YXZ');
+                                
+                                const forwardVec = new THREE.Vector3(0, 0, -1).applyEuler(camYaw);
+                                const rightVec = new THREE.Vector3(1, 0, 0).applyEuler(camYaw);
+
+                                const fwdX = forwardVec.x, fwdZ = forwardVec.z;
+                                const rightX = rightVec.x, rightZ = rightVec.z;
+
+                                const mvX = sweepX; 
+                                const mvZ = -sweepY; // Same inversion as IK movement
+                                
+                                // INVERT BOTH AXES based on user feedback.
+                                // We negate both right and forward calculations here, effectively flipping it 180 degrees
+                                // because the Arrow's internal geometry points towards -Z, while lookAt targets +Z.
+                                const dirVector = new THREE.Vector3(
+                                    -(rightX * mvX + fwdX * mvZ),
+                                    0,
+                                    -(rightZ * mvX + fwdZ * mvZ)
+                                ).normalize();
+                                
+                                const gripperPos = new THREE.Vector3();
+                                j5Ref.current.getWorldPosition(gripperPos);
+                                
+                                // Hover further below the physical gripper (-3.0 instead of -0.8) so it's always visible in default zoom
+                                intentArrowRef.current.position.set(gripperPos.x, gripperPos.y - 3.0, gripperPos.z);
+                                
+                                intentArrowRef.current.lookAt(
+                                    gripperPos.x + dirVector.x,
+                                    gripperPos.y - 3.0,
+                                    gripperPos.z + dirVector.z
+                                );
+                                
+                                const arrowMesh1 = intentArrowRef.current.children[0] as THREE.Mesh;
+                                const arrowMesh2 = intentArrowRef.current.children[1] as THREE.Mesh;
+                                if (arrowMesh1?.material) (arrowMesh1.material as THREE.MeshBasicMaterial).opacity = Math.min(0.8, sweep_mag);
+                                if (arrowMesh2?.material) (arrowMesh2.material as THREE.MeshBasicMaterial).opacity = Math.min(0.6, sweep_mag * 0.8);
+                            }
+                        } else {
+                            ax0 = ble.target_vx; ax1 = ble.target_vy; ax2 = ble.target_tq;
+                            if (intentArrowRef.current) intentArrowRef.current.visible = false;
+                        }
+                    }
                     devices.unshift({ // Prioritize neuro headsets
                         id: `Neuro Headset (BLE) ${i+1}`,
-                        axes: [da.vx, da.vy, da.tq]
+                        axes: [ax0, ax1, ax2]
                     });
                 }
             }
@@ -252,21 +311,15 @@ export default function RoboArmScene({
             const ikSpeed = speed * (moveSensitivity * 20) * 2;
 
             // Determine orientation-based movement vectors
-            let fwdX = 0, fwdZ = -1;
-            let rightX = 1, rightZ = 0;
-
-            if (cameraView === 'Gripper FPV') {
-                const fwdVec = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
-                fwdVec.y = 0;
-                if (fwdVec.lengthSq() > 0.01) {
-                    fwdVec.normalize();
-                    fwdX = fwdVec.x; 
-                    fwdZ = fwdVec.z;
-                    rightX = -fwdZ; 
-                    rightZ = fwdX;
-                }
-            }
+            const camEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+            const camYaw = new THREE.Euler(0, camEuler.y, 0, 'YXZ');
             
+            const forwardVec = new THREE.Vector3(0, 0, -1).applyEuler(camYaw);
+            const rightVec = new THREE.Vector3(1, 0, 0).applyEuler(camYaw);
+
+            let fwdX = forwardVec.x, fwdZ = forwardVec.z;
+            let rightX = rightVec.x, rightZ = rightVec.z;
+
             // X / Y (forward/back) mapping to local screen coordinates
             const mvX = armDeltas[0] * ikSpeed; // Strafe
             const mvZ = -armDeltas[1] * ikSpeed; // Forward/Back (Inverted once per user request. DO NOT CHANGE THIS AGAIN!)
@@ -548,6 +601,17 @@ export default function RoboArmScene({
                 <RigidBody ref={rb4} name="#3b82f6" position={[-1, 0, 8]} colliders="cuboid" mass={3} friction={4.0} linearDamping={2.0} angularDamping={2.0}>
                     <mesh castShadow><boxGeometry args={[1, 1, 1]} /><meshStandardMaterial color="#3b82f6" /></mesh>
                 </RigidBody>
+            </group>
+
+            <group ref={intentArrowRef} visible={false}>
+                <mesh position={[0, 0, -1.0]} rotation={[-Math.PI / 2, 0, 0]}>
+                    <coneGeometry args={[0.2, 0.6, 4]} />
+                    <meshBasicMaterial color="#00ffff" transparent opacity={0.8} depthTest={false} />
+                </mesh>
+                <mesh position={[0, 0, -0.4]} rotation={[-Math.PI / 2, 0, 0]}>
+                    <planeGeometry args={[0.08, 1.2]} />
+                    <meshBasicMaterial color="#00ffff" transparent opacity={0.6} depthTest={false} />
+                </mesh>
             </group>
         </Physics>
         
