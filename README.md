@@ -1,5 +1,37 @@
 # 🌌 NeuroCanvas: Semantic BCI Engine
 
+### 🧠 Working Memory 2.0 & Continuous Phase-Field Geometry
+
+> **Watch the Maze Navigation in Action (Mobile "Super-Mobility" Test):**  
+> [YouTube Shorts: Theta-Gamma Maze Drive](https://www.youtube.com/shorts/nJGbifo0vXY)
+
+A core breakthrough in NeuroCanvas is the transition from reactive, instantaneous Beta-rhythm decoding (which is noisy and prone to drift) to a stable, continuous **Working Memory phase-space** (Theta-Gamma multiplexing). This allows the system to completely decouple linear strafing from angular rotation, providing unprecedented 100% stable movement.
+
+#### The Dual-Geometry Decomposition of Theta-Gamma
+NeuroCanvas models the working memory cycle across 32 discrete gamma sub-slots ($30\text{ Hz}$ to $85\text{ Hz}$) multiplexed within a single $6\text{ Hz}$ Theta cycle (approx $166.6\text{ ms}$). This is driven by the Lisman-Idiart model and recent findings on burst-dynamic working memory (Miller et al., 2018).
+
+*   **Slot $S_0$ ($30\text{ Hz}$):** The Present / Past Anchor.
+*   **Slot $S_{31}$ ($85\text{ Hz}$):** The Prospective Future Horizon (Vicarious Trial and Error).
+
+By mapping these 32 high-dimensional frequency phase-vectors onto a 2D spatial plane, the engine extracts two mathematically distinct kinematic commands simultaneously:
+
+1.  **The Macroscopic Chord $\vec{D}$ (Linear Translation / 2D Strafe):**
+    The direct vector from $S_0$ to $S_{31}$. This represents the pure, intended spatial displacement. It provides crisp forward drive and omnidirectional lateral strafing.
+2.  **The Integral Sagitta $\kappa$ (Super-Stable Angular Rotation):**
+    Rotation is extracted purely as the **lateral curvature (sagitta/bow)** of the 30 intermediate subcycles relative to the main chord $\vec{D}$. 
+    *   **Colinear Thought (Straight Path):** If the 32 slots form a straight line, the curvature is exactly 0. The avatar moves perfectly straight without any rotational drift or camera jitter.
+    *   **Curved Thought (Mental Turn):** If the user plans a turn in their working memory, the intermediate slots bulge outwards. The engine integrates this lateral offset across all 32 points, generating a monolithic, noise-cancelled rotational velocity command.
+
+#### The Cortical Heterarchy Pipeline
+NeuroCanvas orchestrates these geometric properties across a distributed cortical hierarchy, shifting the BCI from a single "joystick" to a collaborative semantic engine:
+
+1.  **Level 1: Oz (Sensory/Spectral):** Evaluates dense gamma formants (30-85Hz). The phase vortex ($T_q$) here maps to visual textures or binaural spatial dispersion.
+2.  **Level 2: Cz (Motor/Kinematic):** The instant beta-rhythm strike zone (15-30Hz). Drives immediate reflex actions, linear thrust, or jPCA rotational population dynamics.
+3.  **Level 3: Pz (Spatial/Allocentric):** The primary hub for the 32-frequency look-ahead spline. Generates the Theta-Gamma **Sagitta** for spatial panning, yaw rotation, and maze navigation.
+4.  **Level 4: FCz (Prefrontal/Semantic):** The overarching macro-attractor. Uses top-down beta gating to modulate global rules, tonal centers in music, or switch semantic contexts (e.g., swapping language embeddings in the NLP latent space).
+
+By layering these modules, NeuroCanvas moves beyond basic XYZ navigation, allowing operators to traverse complex conceptual graphs—using the parietal Sagitta to steer, the central Beta to confirm jumps, and the prefrontal macro-state to establish semantic context.
+
 **HARDWARE SPECIFICATIONS**
 This project relies on a custom ultra-high-density EEG device, NOT a standard medical or consumer EEG headset.
 - **Device Name:** FreeEEG8-alpha or FreeEEG16-alpha2
@@ -150,10 +182,3 @@ npm install && npm run dev
 ```
 
 
-### 🧠 Working Memory & Phase Precession Engine
-
-NeuroCanvas incorporates a sub-cycle Look-Ahead Sweep system to decode Working Memory and spatial intent, independent of pure motor control.
-
-- **Phase Gating (Theta-Gamma Coupling):** Uses the core Theta (6Hz) rhythm as a clock. The descending phase (-π to 0) gates Low-Gamma (36Hz) anchoring the "Past" state. The ascending phase (0 to π) gates High-Gamma (72Hz) anchoring the "Future" projection.
-- **Intra-cycle Cognitive Sweep:** By calculating the cross-frequency phase-to-phase vector (\`Future * conj(Past)\`), we extract a pure intentional navigational vector without physical motor engagement.
-- **Resonance Lock (Security & Anti-Drift):** Physical movement is only authorized when the 18-36Hz Motor Gradient physically aligns with the Theta-Gamma Cognitive Sweep, acting as a cryptographic brain-state lock.

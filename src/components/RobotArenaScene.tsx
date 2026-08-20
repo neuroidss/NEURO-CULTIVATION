@@ -417,7 +417,25 @@ const RobotAvatar = ({ currentPosRef, driftRef, mode1Refs, mode2Refs, movementAx
         rb.current.setLinvel({ x: clampedVx, y: targetVySafe, z: clampedVz }, true);
         
         const newEuler = euler.clone();
-        newEuler.y += fixNaN(-sIntentYaw * baseTurnScale * delta);
+        
+        if (viewMode === 'World') {
+            // Auto-rotate to velocity in World View (just like the Python demo)
+            const speedSq = targetVxSafe * targetVxSafe + targetVzSafe * targetVzSafe;
+            if (speedSq > 0.1) {
+                const targetAng = Math.atan2(targetVxSafe, targetVzSafe); // atan2(x, z) for YXZ
+                let diff = targetAng - newEuler.y;
+                
+                // Normalize diff to -PI to PI
+                while (diff < -Math.PI) diff += Math.PI * 2;
+                while (diff > Math.PI) diff -= Math.PI * 2;
+                
+                newEuler.y += diff * 0.15;
+            }
+        } else {
+            // In Third Person, use the semantic/classic IntentYaw (the Theta-Gamma Sagitta)
+            newEuler.y += fixNaN(-sIntentYaw * baseTurnScale * delta);
+        }
+        
         const targetQuat = new THREE.Quaternion().setFromEuler(newEuler);
         rb.current.setRotation({ x: fixNaN(targetQuat.x), y: fixNaN(targetQuat.y), z: fixNaN(targetQuat.z), w: fixNaN(targetQuat.w) }, true);
         rb.current.setAngvel({ x: 0, y: 0, z: 0 }, true);
