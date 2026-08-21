@@ -298,13 +298,15 @@ export const BrainMazeScene = ({ currentPosRef, driftRef, mode1Refs, mode2Refs, 
                         ctx.strokeRect(c * cellSize, r * cellSize, cellSize, cellSize);
                     } else if (s.maze.grid[r][c] === 2) {
                         // Светящаяся финишная точка (выход из лабиринта) — сочный зеленый
+                        ctx.fillStyle = 'rgba(0, 255, 102, 0.3)';
+                        ctx.beginPath();
+                        ctx.arc(c * cellSize + cellSize / 2, r * cellSize + cellSize / 2, cellSize / 2, 0, Math.PI * 2);
+                        ctx.fill();
+                        
                         ctx.fillStyle = '#00ff66';
-                        ctx.shadowColor = '#00ff66';
-                        ctx.shadowBlur = 20; // Эффект свечения вокруг сферы
                         ctx.beginPath();
                         ctx.arc(c * cellSize + cellSize / 2, r * cellSize + cellSize / 2, cellSize / 3, 0, Math.PI * 2);
                         ctx.fill();
-                        ctx.shadowBlur = 0; // Обязательно сбрасываем тень, чтобы не тормозил рендер
                     }
                 }
             }
@@ -325,11 +327,12 @@ export const BrainMazeScene = ({ currentPosRef, driftRef, mode1Refs, mode2Refs, 
                 }
 
                 if (chest.state === 'closed') {
+                    if (chest.isTargeted) {
+                        ctx.fillStyle = 'rgba(255, 215, 0, 0.3)';
+                        ctx.fillRect(cx - cSize, cy - cSize, cSize * 2, cSize * 2);
+                    }
                     ctx.fillStyle = '#ffd700';
-                    ctx.shadowColor = '#ffd700';
-                    ctx.shadowBlur = chest.isTargeted ? 20 : 5;
                     ctx.fillRect(cx - cSize/2, cy - cSize/2, cSize, cSize);
-                    ctx.shadowBlur = 0;
                     
                     if (chest.scanProgress > 0) {
                         ctx.strokeStyle = '#0ff';
@@ -364,13 +367,15 @@ export const BrainMazeScene = ({ currentPosRef, driftRef, mode1Refs, mode2Refs, 
                 let ox = orb.x * cellSize;
                 let oy = orb.y * cellSize;
 
+                ctx.fillStyle = 'rgba(0, 255, 255, 0.3)';
+                ctx.beginPath();
+                ctx.arc(ox, oy, cellSize * 0.25, 0, Math.PI * 2);
+                ctx.fill();
+
                 ctx.fillStyle = '#0ff';
-                ctx.shadowColor = '#0ff';
-                ctx.shadowBlur = 15;
                 ctx.beginPath();
                 ctx.arc(ox, oy, cellSize * 0.15, 0, Math.PI * 2);
                 ctx.fill();
-                ctx.shadowBlur = 0;
 
                 if (orb.isTargeted) {
                     ctx.strokeStyle = `rgba(255, 0, 255, ${(focusIntensity - 0.3) * 2})`;

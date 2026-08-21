@@ -153,7 +153,8 @@ export class BleService {
     public lastTargetY = 0;
 
     public processTimeMs = 0;
-    public fastMode = false; // Optimization
+    public fastMode = false;
+    public computeStride = /Mobi|Android/i.test(navigator.userAgent) ? 4 : 1; // Auto-scale for mobile vs desktop
 
     private lastEegProcess = 0;
     
@@ -382,16 +383,16 @@ export class BleService {
                     let psi_future_re = 0, psi_future_im = 0;
                     
                     if (!this.fastMode) {
-                        for(let t=0; t<BUF_SIZE; t++) {
+                        for(let t=0; t<BUF_SIZE; t+=this.computeStride) {
                              let cross_lg_re = this.plgRe[i][t] * this.plgRe[j][t] + this.plgIm[i][t] * this.plgIm[j][t];
                              let cross_lg_im = this.plgIm[i][t] * this.plgRe[j][t] - this.plgRe[i][t] * this.plgIm[j][t];
-                             psi_past_re += cross_lg_re * w_past[t];
-                             psi_past_im += cross_lg_im * w_past[t];
+                             psi_past_re += cross_lg_re * w_past[t] * this.computeStride;
+                             psi_past_im += cross_lg_im * w_past[t] * this.computeStride;
                              
                              let cross_hg_re = this.phgRe[i][t] * this.phgRe[j][t] + this.phgIm[i][t] * this.phgIm[j][t];
                              let cross_hg_im = this.phgIm[i][t] * this.phgRe[j][t] - this.phgRe[i][t] * this.phgIm[j][t];
-                             psi_future_re += cross_hg_re * w_future[t];
-                             psi_future_im += cross_hg_im * w_future[t];
+                             psi_future_re += cross_hg_re * w_future[t] * this.computeStride;
+                             psi_future_im += cross_hg_im * w_future[t] * this.computeStride;
                         }
                     }
                     

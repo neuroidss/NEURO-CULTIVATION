@@ -1400,18 +1400,29 @@ export default function App() {
                     <input type="range" min="0.001" max="0.5" step="0.001" value={moveSensitivity} onChange={(e) => setMoveSensitivity(parseFloat(e.target.value))} className="w-full accent-green-500 cursor-pointer" />
                  </div>
                  <div className="flex flex-col mb-1 mt-2">
-                    <div className="flex justify-between items-center text-[10px] text-gray-400 uppercase">
-                        <span>Speed (Fast Mode processing):</span>
-                        <button 
-                          onClick={() => {
-                              const bleS = BleService.getInstance();
-                              bleS.fastMode = !bleS.fastMode;
-                              forceUpdate({}); 
+                      <div className="flex justify-between items-center bg-gray-900 border border-gray-800 rounded p-1 mb-1 mt-2">
+                        <span className="text-[10px] text-gray-400 uppercase ml-1">Engine Precision</span>
+                        <select 
+                          value={BleService.getInstance().fastMode ? 'MAX_FPS' : BleService.getInstance().computeStride.toString()}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            const bleS = BleService.getInstance();
+                            if (val === 'MAX_FPS') {
+                                bleS.fastMode = true;
+                                bleS.computeStride = 8;
+                            } else {
+                                bleS.fastMode = false;
+                                bleS.computeStride = parseInt(val, 10);
+                            }
+                            forceUpdate({});
                           }}
-                          className={`px-2 py-1 text-[10px] border rounded uppercase ${BleService.getInstance().fastMode ? 'border-amber-500 bg-amber-900/30 text-amber-300 shadow-[0_0_8px_orange]' : 'border-gray-500 bg-gray-900/30 text-gray-300'}`}>
-                          {BleService.getInstance().fastMode ? 'MAX REALTIME' : 'FULL SPECTRUM'}
-                        </button>
-                    </div>
+                          className="bg-black border border-gray-700 text-[10px] text-gray-300 rounded px-1 outline-none">
+                          <option value="1">Ultra (1x)</option>
+                          <option value="2">High (2x)</option>
+                          <option value="4">Low (4x)</option>
+                          <option value="MAX_FPS">Max FPS</option>
+                        </select>
+                      </div>
                  </div>
                       <div className="flex justify-between items-center bg-gray-900 border border-gray-800 rounded p-1 mb-1 mt-2">
                         <span className="text-[10px] text-gray-400 uppercase ml-1">BLE Gain</span>
