@@ -20,9 +20,10 @@ interface BrainMazeProps {
     zoomLevel?: number;
     audioEngine?: any;
     movementInput?: string;
+    showIntentArrow?: boolean;
 }
 
-export const BrainMazeScene = ({ currentPosRef, driftRef, mode1Refs, mode2Refs, movementAxes, viewMode = 'ThirdPerson', controlMode = 'Classic', moveSensitivity = 0.05, zoomLevel = 80, audioEngine, movementInput = 'BLE' }: BrainMazeProps) => {
+export const BrainMazeScene = ({ currentPosRef, driftRef, mode1Refs, mode2Refs, movementAxes, viewMode = 'ThirdPerson', controlMode = 'Classic', moveSensitivity = 0.05, zoomLevel = 80, audioEngine, movementInput = 'BLE', showIntentArrow = false }: BrainMazeProps) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const reqRef = useRef<number>(0);
 
@@ -150,17 +151,8 @@ export const BrainMazeScene = ({ currentPosRef, driftRef, mode1Refs, mode2Refs, 
                 rawDx = s.ctrl.moveX * EngineConfig.Maze.strafeSpeedScale * activeBoost;
                 rawDy = s.ctrl.moveY * EngineConfig.Maze.forwardSpeedScale * activeBoost;
                 
-                let moveLen = Math.hypot(rawDx, rawDy);
-                if (moveLen > 0.005) {
-                    let targetAng = Math.atan2(rawDx, -rawDy);
-                    let diff = (targetAng - s.player.angle + Math.PI) % (2 * Math.PI) - Math.PI;
-                    // handle js modulo negative behavior
-                    diff = ((diff % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-                    if (diff > Math.PI) diff -= 2 * Math.PI;
-                    s.player.angle += diff * 0.15;
-                } else {
-                    s.player.angle += s.ctrl.torque * activeBoost * 0.5;
-                }
+                // Pure decoupled rotation (Theta-Gamma Sagitta)
+                s.player.angle += s.ctrl.torque * activeBoost * 0.5;
             } else {
                 s.player.angle += s.ctrl.torque * activeBoost * 0.5;
                 
@@ -273,7 +265,7 @@ export const BrainMazeScene = ({ currentPosRef, driftRef, mode1Refs, mode2Refs, 
             ctx.fillStyle = '#050505';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            const cellSize = zoomLevel;
+            const cellSize = zoomLevel * 0.5;
             ctx.save();
             if (viewMode === 'ThirdPerson') {
                 ctx.translate(canvas.width / 2, canvas.height / 2);
@@ -281,7 +273,6 @@ export const BrainMazeScene = ({ currentPosRef, driftRef, mode1Refs, mode2Refs, 
                 ctx.translate(-s.player.x * cellSize, -s.player.y * cellSize);
             } else {
                 ctx.translate(canvas.width / 2, canvas.height / 2);
-                ctx.scale(0.5, 0.5); // Zooms out to see the world
                 ctx.translate(-(s.maze.dim / 2) * cellSize, -(s.maze.dim / 2) * cellSize);
             }
 
@@ -410,7 +401,6 @@ export const BrainMazeScene = ({ currentPosRef, driftRef, mode1Refs, mode2Refs, 
                 ctx.translate(canvas.width / 2, canvas.height / 2);
             } else {
                 ctx.translate(canvas.width / 2, canvas.height / 2);
-                ctx.scale(0.5, 0.5);
                 ctx.translate(-(s.maze.dim / 2) * cellSize, -(s.maze.dim / 2) * cellSize);
                 ctx.translate(s.player.x * cellSize, s.player.y * cellSize);
                 ctx.rotate(s.player.angle);
@@ -424,7 +414,7 @@ export const BrainMazeScene = ({ currentPosRef, driftRef, mode1Refs, mode2Refs, 
             
             // Draw Motor Ray
             let mot_mag = Math.sqrt(ble.target_vx**2 + ble.target_vy**2);
-            if (mot_mag > 0.01 && (controlMode !== 'Sweep' && controlMode !== 'Semantic')) {
+            if (showIntentArrow && mot_mag > 0.01 && (controlMode !== 'Sweep' && controlMode !== 'Semantic')) {
                 let mot_ang = Math.atan2(ble.target_vy, ble.target_vx);
                 let draw_ang = viewMode === 'World' ? mot_ang - s.player.angle : mot_ang;
                 let mot_len = pSize * 1.4 + Math.min(mot_mag, 15.0) * 5.0;
@@ -438,7 +428,7 @@ export const BrainMazeScene = ({ currentPosRef, driftRef, mode1Refs, mode2Refs, 
             
             // Draw Sweep Ray
             let sw_mag = ble.sweep_mag;
-            if (sw_mag > 0.01) {
+            if (showIntentArrow && sw_mag > 0.01) {
                 let sw_ang = Math.atan2(ble.sweep_vy, ble.sweep_vx);
                 let draw_ang = viewMode === 'World' ? sw_ang - s.player.angle : sw_ang;
                 let sw_len = pSize * 1.5 + Math.min(sw_mag, 15.0) * 7.0;

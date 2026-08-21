@@ -66,7 +66,7 @@ export default function App() {
           engineRef.current.isPaused = (activityMode !== 'Refining');
       }
   }, [activityMode]);
-  const [viewMode, setViewMode] = useState<'World' | 'ThirdPerson'>('World');
+  const [viewMode, setViewMode] = useState<'World' | 'ThirdPerson'>('ThirdPerson');
   const [controlMode, setControlMode] = useState<'Motor' | 'Sweep' | 'Resonance'>('Sweep');
   const [morphOverride, setMorphOverride] = useState<'Auto' | 'Manual'>('Manual');
   const [manualBlend, setManualBlend] = useState<number>(0.0);
@@ -80,6 +80,7 @@ export default function App() {
   const [phaseVortexShowGamepad, setPhaseVortexShowGamepad] = useState<boolean>(true);
   const [phaseVortexShowProtoGamepads, setPhaseVortexShowProtoGamepads] = useState<boolean>(false);
   const [useSensors, setUseSensors] = useState<boolean>(true);
+  const [showIntentArrow, setShowIntentArrow] = useState<boolean>(true);
   const [multiDeviceMode, setMultiDeviceMode] = useState<'append' | 'average' | 'max' | 'primary'>('max');
 
   useEffect(() => {
@@ -804,10 +805,19 @@ export default function App() {
              
              const exportAxes = new Array(10).fill(0);
              
-             exportAxes[0] = clamp(bleService.target_vx / 15.0); 
-             exportAxes[1] = clamp(-bleService.target_vy / 15.0); 
-             exportAxes[2] = clamp(bleService.target_tq / 15.0); 
-             exportAxes[3] = 0; 
+             if (bleService.sweep_mag > 0.05) {
+                 // Working Memory / Theta-Gamma Sweep Mode (Full 4-Axis)
+                 exportAxes[0] = clamp(bleService.sweep_vx / 24.0); 
+                 exportAxes[1] = clamp(-bleService.sweep_vy / 24.0); 
+                 exportAxes[2] = clamp(bleService.sweep_tq / 24.0); 
+                 exportAxes[3] = clamp(bleService.sweep_pitch / 24.0); 
+             } else {
+                 // Motor / Beta Strike Mode (3-Axis)
+                 exportAxes[0] = clamp(bleService.target_vx / 15.0); 
+                 exportAxes[1] = clamp(-bleService.target_vy / 15.0); 
+                 exportAxes[2] = clamp(bleService.target_tq / 15.0); 
+                 exportAxes[3] = 0; 
+             }
              
              if (energy > 0) exportAxes[4] = clamp(energy * 0.05); 
              
@@ -959,13 +969,13 @@ export default function App() {
       
       {activityMode === 'Arena' && (
         <div className="absolute inset-0 z-0">
-          <RobotArenaScene driftRef={driftRef} isActive={true} currentPosRef={currentPosRef} mode1Refs={mode1Refs} mode2Refs={mode2Refs} movementAxes={movementAxes} viewMode={viewMode} controlMode={controlMode} controlBlend={morphOverride === 'Auto' ? -1.0 : manualBlend} moveSensitivity={moveSensitivity} zoomLevel={zoomLevel} movementInput={movementInput} bladesInput={bladesInput} bladeCount={bladeCount} audioEngine={audioEngineRef.current} />
+          <RobotArenaScene driftRef={driftRef} isActive={true} currentPosRef={currentPosRef} mode1Refs={mode1Refs} mode2Refs={mode2Refs} movementAxes={movementAxes} viewMode={viewMode} controlMode={controlMode} controlBlend={morphOverride === 'Auto' ? -1.0 : manualBlend} moveSensitivity={moveSensitivity} zoomLevel={zoomLevel} movementInput={movementInput} bladesInput={bladesInput} bladeCount={bladeCount} audioEngine={audioEngineRef.current} showIntentArrow={showIntentArrow} />
         </div>
       )}
       
       {activityMode === 'BrainMaze' && (
         <div className="absolute inset-0 z-0">
-          <BrainMazeScene driftRef={driftRef} currentPosRef={currentPosRef} mode1Refs={mode1Refs} mode2Refs={mode2Refs} movementAxes={movementAxes} viewMode={viewMode} controlMode={controlMode} moveSensitivity={moveSensitivity} zoomLevel={zoomLevel} audioEngine={audioEngineRef.current} movementInput={movementInput} />
+          <BrainMazeScene driftRef={driftRef} currentPosRef={currentPosRef} mode1Refs={mode1Refs} mode2Refs={mode2Refs} movementAxes={movementAxes} viewMode={viewMode} controlMode={controlMode} moveSensitivity={moveSensitivity} zoomLevel={zoomLevel} audioEngine={audioEngineRef.current} movementInput={movementInput} showIntentArrow={showIntentArrow} />
         </div>
       )}
 
@@ -1576,6 +1586,10 @@ export default function App() {
               <div className="flex items-center gap-2 mb-2">
                 <input type="checkbox" id="useSensors" checked={useSensors} onChange={(e) => setUseSensors(e.target.checked)} />
                 <label htmlFor="useSensors" className="text-[10px] text-gray-300">Enable Gyro/Compass (Sensors)</label>
+              </div>
+              <div className="flex items-center gap-2 mb-2">
+                <input type="checkbox" id="showIntentArrow" checked={showIntentArrow} onChange={(e) => setShowIntentArrow(e.target.checked)} />
+                <label htmlFor="showIntentArrow" className="text-[10px] text-gray-300">Show Intent Arrow (Visual Ray)</label>
               </div>
               <div className="flex justify-between items-center bg-gray-900 border border-gray-800 rounded p-1 mb-2">
                 <span className="text-[10px] text-gray-400 uppercase ml-1">Multi-Device Mode</span>

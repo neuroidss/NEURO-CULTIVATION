@@ -140,13 +140,14 @@ export class BleService {
     public sweep_vx = 0;
     public sweep_vy = 0;
     public sweep_tq = 0;
+    public sweep_pitch = 0;
     public sweep_mag = 0;
     public sweep_persistence = 0;
     public chain_continuity = 0;
     public lastSweepX = 0;
     public lastSweepY = 0;
     
-    public deviceAxes: {vx: number, vy: number, tq: number}[] = [];
+    public deviceAxes: {vx: number, vy: number, tq: number, pitch?: number}[] = [];
     
     public lastTargetX = 0;
     public lastTargetY = 0;
@@ -325,11 +326,16 @@ export class BleService {
             let svx = 0;
             let svy = 0;
             let stq = 0;
+            let spitch = 0;
             let inter_chain = 0;
             let norm_past = 0;
             let norm_prev_fut = 0;
             let consensusCount = 0;
             let driftSum = 0;
+            
+            let sum_move_w = 0, move_cx = 0, move_cy = 0;
+            let sum_sweep_w = 0, sweep_cx = 0, sweep_cy = 0;
+
             const RADIUS = 10;
             const PARAMS = this.electrodes;
 
@@ -403,13 +409,26 @@ export class BleService {
                     if (PARAMS[i] && PARAMS[j]) {
                         let dx = PARAMS[j].x - PARAMS[i].x;
                         let dy = PARAMS[j].y - PARAMS[i].y;
+                        
+                        let w_move = Math.abs(move_val);
+                        sum_move_w += w_move;
+                        move_cx += w_move * PARAMS[i].x;
+                        move_cy += w_move * PARAMS[i].y;
+                        
                         tvx += move_val * dx;
                         tvy += move_val * dy;
                         ttq += (move_val * (PARAMS[i].x * dy - PARAMS[i].y * dx)) / (RADIUS * 10);
+                        
                         let sweep_val = sweep_iplv * 12.0;
+                        let w_sweep = Math.abs(sweep_val);
+                        sum_sweep_w += w_sweep;
+                        sweep_cx += w_sweep * PARAMS[i].x;
+                        sweep_cy += w_sweep * PARAMS[i].y;
+                        
                         svx += sweep_val * dx;
                         svy += sweep_val * dy;
                         stq += (sweep_val * (PARAMS[i].x * dy - PARAMS[i].y * dx)) / (RADIUS * 10);
+                        spitch += (sweep_val * (PARAMS[i].x * dx + PARAMS[i].y * dy)) / (RADIUS * 10);
                     }
 
                     if (Math.abs(move_val) > 0.3) {
@@ -424,6 +443,20 @@ export class BleService {
                     normSq += move_val * move_val;
                     pairIdx++;
                 }
+            }
+            
+            // --- CENTROID CORRECTION ---
+            // Remove linear translation artifacts from rotation (Sagitta)
+            if (sum_sweep_w > 0.001) {
+                sweep_cx /= sum_sweep_w;
+                sweep_cy /= sum_sweep_w;
+                stq -= (sweep_cx * svy - sweep_cy * svx) / (RADIUS * 10);
+                spitch -= (sweep_cx * svx + sweep_cy * svy) / (RADIUS * 10);
+            }
+            if (sum_move_w > 0.001) {
+                move_cx /= sum_move_w;
+                move_cy /= sum_move_w;
+                ttq -= (move_cx * tvy - move_cy * tvx) / (RADIUS * 10);
             }
             
             this.topologicalConsensus = consensusCount;
@@ -447,6 +480,7 @@ export class BleService {
             this.sweep_vx = svx * scale * chain_weight;
             this.sweep_vy = svy * scale * chain_weight;
             this.sweep_tq = stq * scale * chain_weight;
+            this.sweep_pitch = spitch * scale * chain_weight;
             
             this.sweep_mag = Math.sqrt(this.sweep_vx ** 2 + this.sweep_vy ** 2);
             let dot_sw = this.sweep_vx * this.lastSweepX + this.sweep_vy * this.lastSweepY;

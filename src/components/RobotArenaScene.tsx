@@ -31,6 +31,7 @@ interface RobotArenaProps {
     bladeCount?: number;
     isActive?: boolean;
     audioEngine?: any;
+    showIntentArrow?: boolean;
 }
 
 const OrbiterMesh = ({ i, getPstFut, baseColor }: { i: number, getPstFut: () => { past: Float32Array, future: Float32Array } | null, baseColor: number }) => {
@@ -145,7 +146,7 @@ const OrbiterSwarm = ({ playerRb, getPstFut, baseColor, bladeCount = 28, collisi
 
 // ... Wait, let's keep going
 
-const RobotAvatar = ({ currentPosRef, driftRef, mode1Refs, mode2Refs, movementAxes, viewMode, controlMode = 'Classic', controlBlend = 0.0, moveSensitivity = 0.05, zoomLevel = 80, movementInput = 'BLE', bladesInput = 'BLE', bladeCount = 28, audioEngine }: RobotArenaProps) => {
+const RobotAvatar = ({ currentPosRef, driftRef, mode1Refs, mode2Refs, movementAxes, viewMode, controlMode = 'Classic', controlBlend = 0.0, moveSensitivity = 0.05, zoomLevel = 80, movementInput = 'BLE', bladesInput = 'BLE', bladeCount = 28, audioEngine, showIntentArrow = false }: RobotArenaProps) => {
     const rb = useRef<RapierRigidBody>(null);
     const bodyMesh = useRef<THREE.Mesh>(null);
     const intentArrowRef = useRef<THREE.Group>(null);
@@ -418,23 +419,9 @@ const RobotAvatar = ({ currentPosRef, driftRef, mode1Refs, mode2Refs, movementAx
         
         const newEuler = euler.clone();
         
-        if (viewMode === 'World') {
-            // Auto-rotate to velocity in World View (just like the Python demo)
-            const speedSq = targetVxSafe * targetVxSafe + targetVzSafe * targetVzSafe;
-            if (speedSq > 0.1) {
-                const targetAng = Math.atan2(targetVxSafe, targetVzSafe); // atan2(x, z) for YXZ
-                let diff = targetAng - newEuler.y;
-                
-                // Normalize diff to -PI to PI
-                while (diff < -Math.PI) diff += Math.PI * 2;
-                while (diff > Math.PI) diff -= Math.PI * 2;
-                
-                newEuler.y += diff * 0.15;
-            }
-        } else {
-            // In Third Person, use the semantic/classic IntentYaw (the Theta-Gamma Sagitta)
-            newEuler.y += fixNaN(-sIntentYaw * baseTurnScale * delta);
-        }
+        // Apply the pure decoupled semantic/classic IntentYaw (the Theta-Gamma Sagitta)
+        // This now works perfectly in both World and Third Person without cross-talk
+        newEuler.y += fixNaN(-sIntentYaw * baseTurnScale * delta);
         
         const targetQuat = new THREE.Quaternion().setFromEuler(newEuler);
         rb.current.setRotation({ x: fixNaN(targetQuat.x), y: fixNaN(targetQuat.y), z: fixNaN(targetQuat.z), w: fixNaN(targetQuat.w) }, true);
@@ -443,7 +430,7 @@ const RobotAvatar = ({ currentPosRef, driftRef, mode1Refs, mode2Refs, movementAx
         // Update the visual intent arrow based on the raw intent from Sweep/Working Memory (or motor fallback)
         if (intentArrowRef.current) {
             const rawMag = Math.sqrt(intentX * intentX + intentZ * intentZ);
-            if (rawMag > 0.05) {
+            if (showIntentArrow && rawMag > 0.05) {
                 intentArrowRef.current.visible = true;
                 intentArrowRef.current.position.set(currentPos.x, currentPos.y - 0.4, currentPos.z);
                 
@@ -731,7 +718,7 @@ const Debris = () => {
     );
 };
 
-export function RobotArenaScene({driftRef, currentPosRef, mode1Refs, mode2Refs, movementAxes, viewMode, controlMode = 'Classic', controlBlend = 0.0, moveSensitivity = 0.05, zoomLevel = 80, movementInput = 'BLE', bladesInput = 'BLE', bladeCount = 28, isActive = true, audioEngine}: RobotArenaProps) {
+export function RobotArenaScene({driftRef, currentPosRef, mode1Refs, mode2Refs, movementAxes, viewMode, controlMode = 'Classic', controlBlend = 0.0, moveSensitivity = 0.05, zoomLevel = 80, movementInput = 'BLE', bladesInput = 'BLE', bladeCount = 28, isActive = true, audioEngine, showIntentArrow = false}: RobotArenaProps) {
     const [remotePlayers, setRemotePlayers] = useState<any[]>([]);
 
     useEffect(() => {
@@ -755,7 +742,7 @@ export function RobotArenaScene({driftRef, currentPosRef, mode1Refs, mode2Refs, 
                 <directionalLight castShadow position={[10, 20, 10]} intensity={1.5} shadow-mapSize={[1024, 1024]} />
                 
                 <Physics>
-                    <RobotAvatar driftRef={driftRef} currentPosRef={currentPosRef} mode1Refs={mode1Refs} mode2Refs={mode2Refs} movementAxes={movementAxes} viewMode={viewMode} controlMode={controlMode} controlBlend={controlBlend} moveSensitivity={moveSensitivity} zoomLevel={zoomLevel} movementInput={movementInput} bladesInput={bladesInput} bladeCount={bladeCount} audioEngine={audioEngine} />
+                    <RobotAvatar driftRef={driftRef} currentPosRef={currentPosRef} mode1Refs={mode1Refs} mode2Refs={mode2Refs} movementAxes={movementAxes} viewMode={viewMode} controlMode={controlMode} controlBlend={controlBlend} moveSensitivity={moveSensitivity} zoomLevel={zoomLevel} movementInput={movementInput} bladesInput={bladesInput} bladeCount={bladeCount} audioEngine={audioEngine} showIntentArrow={showIntentArrow} />
                     
                     {remotePlayers.length > 0 ? (
                         remotePlayers.map(([id, pState]) => (

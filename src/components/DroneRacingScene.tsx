@@ -224,12 +224,13 @@ const DroneAvatar = ({
       const smooth = 0.98 - (skillLevel * 0.1); 
       const gain = 1.0; 
 
-      let intentX = 0, intentY = 0, intentTq = 0;
+      let intentX = 0, intentY = 0, intentTq = 0, intentPitchSpd = 0;
       
       let coherenceGate = 1.0;
       let sweepX = ble.sweep_vx / 24.0;
       let sweepY = ble.sweep_vy / 24.0;
       let sweepTq = ble.sweep_tq / 24.0;
+      let sweepPitch = (ble as any).sweep_pitch / 24.0;
       
       let mot_mag = Math.sqrt(ble.target_vx**2 + ble.target_vy**2);
       let sweep_mag = Math.sqrt(sweepX**2 + sweepY**2);
@@ -241,6 +242,7 @@ const DroneAvatar = ({
           intentX = sweepX;
           intentY = sweepY;
           intentTq = sweepTq;
+          intentPitchSpd = sweepPitch;
           intentMag = sweep_mag;
           rawIntentX = sweepX;
           rawIntentY = sweepY;
@@ -248,6 +250,7 @@ const DroneAvatar = ({
           intentX = ble.target_vx;
           intentY = ble.target_vy;
           intentTq = ble.target_tq;
+          intentPitchSpd = 0;
           intentMag = mot_mag;
           rawIntentX = ble.target_vx;
           rawIntentY = ble.target_vy;
@@ -259,10 +262,13 @@ const DroneAvatar = ({
       uData.sRoll = uData.sRoll * smooth + intentX * gain * (1 - smooth);
       uData.sPitch = uData.sPitch * smooth + intentY * gain * (1 - smooth);
       uData.sYawSpeed = uData.sYawSpeed * smooth + intentTq * gain * (1 - smooth);
+      if (uData.sPitchSpeed === undefined) uData.sPitchSpeed = 0;
+      uData.sPitchSpeed = uData.sPitchSpeed * smooth + intentPitchSpd * gain * (1 - smooth);
 
       pitch = uData.sPitch; 
       roll = uData.sRoll; 
       (activeRef.current.userData as any).targetYaw -= uData.sYawSpeed * 3.5 * delta;
+      (activeRef.current.userData as any).targetPitch -= uData.sPitchSpeed * 2.0 * delta;
       
       if (ble.deviceAxes && ble.deviceAxes.length > 1) {
           // Full control: 2nd device handles vertical
